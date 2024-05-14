@@ -91,6 +91,11 @@ double gBoardHG[gBoardCount][32];
 double gBoardLG[gBoardCount][32];
 double gBoardTDC[gBoardCount][33];
 
+int gProcessedCount[gBoardCount];
+int gProcessedCh[gBoardCount][32];
+double gProcessedAmp[gBoardCount][32];
+double gProcessedTDC[gBoardCount][33];
+
 #include <TSystem.h>
 void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
 {
@@ -125,6 +130,11 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
     tree->Branch("boardHG", gBoardHG, Form("boardHG[%d][32]/D", gBoardCount));
     tree->Branch("boardLG", gBoardLG, Form("boardLG[%d][32]/D", gBoardCount));
     tree->Branch("boardTDC", gBoardTDC, Form("boardTDC[%d][33]/D", gBoardCount));
+
+    tree->Branch("processedCount", gProcessedCount, Form("processedCount[%d]/I", gBoardCount));
+    tree->Branch("processedCh", gProcessedCh, Form("processedCh[%d][32]/I", gBoardCount));
+    tree->Branch("processedAmp", gProcessedAmp, Form("processedAmp[%d][32]/D", gBoardCount));
+    tree->Branch("processedTDC", gProcessedTDC, Form("processedTDC[%d][33]/D", gBoardCount));
 
 #ifdef SAVERAW
     char cbuf1[256], cbuf2[256];
@@ -169,6 +179,10 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
         if (entry % 1000 == 0)
             std::cout << entry << std::endl;
         gMatchTree->GetEntry(entry);
+
+        // Clear gProcessedTDC Data
+        memset(gProcessedTDC, 0, sizeof(double) * gBoardCount * 33);
+
         for (int board = 0; board < gBoardCount; board++)
         {
             gBoard[board]->GetEntry(gMatchEntry[board]);
@@ -185,9 +199,11 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
             std::vector<std::pair<int, double>> firedMap0;
             std::vector<std::pair<int, double>> firedMap;
             // auto &firedMap = firedMap0;
+            // First filter for channels: using the amplitude of the SiPM
             for (int i = 0; i < firedCount; i++)
             {
                 int sipm = gBoard[board]->FiredCh[i];
+                gProcessedTDC[board][sipm] = (gBoard[board]->TDCTime[sipm] - gLastSeg[board]) / gTSInterval[board] * 1e9;
                 double hgEffValue = gBoardCali[board]->CalcSiPMEffValue(sipm);
                 if (hgEffValue > 0.05)
                     firedMap0.push_back(std::pair<int, double>(sipm, hgEffValue));
@@ -198,10 +214,14 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
             if (firedMap0.size() > 0)
                 gTDCTime[board] = gBoard[board]->TDCTime[firedMap0[0].first];
 
+            // Second filter for channels: using the time of the SiPM
+            gProcessedCount[board] = firedMap0.size();
             for (int i = 0; i < firedMap0.size(); i++)
             {
                 auto sipm = firedMap0[i].first;
+                gProcessedCh[board][i] = sipm;
                 auto hgEffValue = firedMap0[i].second;
+                gProcessedAmp[board][i] = hgEffValue;
                 if (TMath::Abs(gBoard[board]->TDCTime[sipm] - gTDCTime[board]) < 30)
                     firedMap.push_back(std::pair<int, double>(sipm, hgEffValue));
             }
@@ -209,6 +229,7 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
             // std::cout << "FiredCount: " << firedCount << "\t filtered count:" << firedMap.size() << std::endl;
 
             // Decode for the first try
+            // If 2 or 3 channels fired, decode using 2 SiPM, decode flag can be 1 or -1 (temporary) here, decode type depends on next steps
             if (firedMap.size() < 4 && firedMap.size() >= 2)
             {
                 gDecodeType[board] = 1;
@@ -235,8 +256,10 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
                 gCalcPos[board] = gFiredStrip1[board] * 10;
                 gCalcPos2[board] = gFiredStrip1[board] * 10;
             }
+            // if more than 3 channels fired, decode using 4 SiPM
             else if (firedMap.size() >= 4)
             {
+                // Try to decode using 4 SiPMs with highest amplitude, decode flag can be 3 or -1(temporary) here, decode type is 2 if success
                 int strip1, strip2;
                 gDecodeFlag[board] = UserDefine::Decode4SiPM(firedMap[0].first, firedMap[1].first, firedMap[2].first, firedMap[3].first, gBoard[board]->HGamp, gWeight1[board], gWeight2[board], strip1, strip2);
                 if (gDecodeFlag[board] > 0)
@@ -253,6 +276,7 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
                     gCalcPos2[board] *= 10;
                 }
 
+                // If failed to decode using 4 SiPMs, try to decode using 2 SiPMs with closet TDC time, if failed decodeFlag is -3, decode type is 3, else decodeFlag is -2, decode type depends on next steps
                 if (gDecodeFlag[board] < 0)
                 {
                     std::cout << std::setprecision(12) << "Error in LOOP4: " << entry << '\t' << board << '\t' << firedCount << '\t' << (int)gDecodeFlag[board] << '\t' << std::endl;
@@ -298,7 +322,7 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
                     std::cout << "Group Error: " << gFiredStrip1[board] / 16 << '\t' << gFiredStrip2[board] / 16 << '\t' << gWeight1[board] << '\t' << gWeight2[board] << std::endl;
             }
 
-            // if only find one fired strip
+            // if only find one fired strip, judge whether left or right is valid strip using amplitude, decodeType is 4 (left) or 5 (right) if success, else decodeType is 6
             if (gDecodeFlag[board] == 1 || gDecodeFlag[board] == -2)
             {
                 int firedStrip = gFiredStrip1[board];
@@ -308,9 +332,10 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
                 if (firedStrip > 0)
                 {
                     sipmla = UserDefine::GetFiberCode(firedStrip - 1, UserDefine::a);
-                    ampla = gBoardCali[board]->CalcSiPMEffValue(sipmla);
                     sipmlb = UserDefine::GetFiberCode(firedStrip - 1, UserDefine::b);
-                    amplb = gBoardCali[board]->CalcSiPMEffValue(sipmlb);
+                    gBoardCali[board]->CalcStripEffValue(firedStrip - 1, ampla, amplb);
+                    // ampla = gBoardCali[board]->CalcSiPMEffValue(sipmla);
+                    // amplb = gBoardCali[board]->CalcSiPMEffValue(sipmlb);
                 }
                 else
                 {
@@ -321,9 +346,10 @@ void GetPos(std::string sCaliFolder = "../", std::string sDataFolder = "../")
                 if (firedStrip < 63)
                 {
                     sipmra = UserDefine::GetFiberCode(firedStrip + 1, UserDefine::a);
-                    ampra = gBoardCali[board]->CalcSiPMEffValue(sipmra);
                     sipmrb = UserDefine::GetFiberCode(firedStrip + 1, UserDefine::b);
-                    amprb = gBoardCali[board]->CalcSiPMEffValue(sipmrb);
+                    gBoardCali[board]->CalcStripEffValue(firedStrip + 1, ampra, amprb);
+                    // ampra = gBoardCali[board]->CalcSiPMEffValue(sipmra);
+                    // amprb = gBoardCali[board]->CalcSiPMEffValue(sipmrb);
                 }
                 else
                 {

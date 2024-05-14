@@ -72,6 +72,11 @@ void Correction()
     double nextSeg[gBoardCount];
     double interval[gBoardCount];
 
+    int processedCount[gBoardCount];
+    int processedCh[gBoardCount][32];
+    double processedAmp[gBoardCount][32];
+    double processedTDC[gBoardCount][33];
+
     tree->SetBranchAddress("calcPos2", calcPos2);
     tree->SetBranchAddress("firedStrip1", firedStrip1);
     tree->SetBranchAddress("decodeFlag", decodeFlag);
@@ -89,6 +94,10 @@ void Correction()
     tree->SetBranchAddress("lastSeg", lastSeg);
     tree->SetBranchAddress("nextSeg", nextSeg);
     tree->SetBranchAddress("interval", interval);
+    tree->SetBranchAddress("processedCount", processedCount);
+    tree->SetBranchAddress("processedCh", processedCh);
+    tree->SetBranchAddress("processedAmp", processedAmp);
+    tree->SetBranchAddress("processedTDC", processedTDC);
 
     treeW->Branch("calcPos2", calcPos2, Form("calcPos2[%d]/D", gBoardCount));
     treeW->Branch("firedStrip1", firedStrip1, Form("firedStrip1[%d]/I", gBoardCount));
@@ -118,6 +127,11 @@ void Correction()
     treeW->Branch("nextSeg", nextSeg, Form("nextSeg[%d]/D", gBoardCount));
     treeW->Branch("interval", interval, Form("interval[%d]/D", gBoardCount));
 
+    treeW->Branch("processedCount", processedCount, Form("processedCount[%d]/I", gBoardCount));
+    treeW->Branch("processedCh", processedCh, Form("processedCh[%d][32]/I", gBoardCount));
+    treeW->Branch("processedAmp", processedAmp, Form("processedAmp[%d][32]/D", gBoardCount));
+    treeW->Branch("processedTDC", processedTDC, Form("processedTDC[%d][33]/D", gBoardCount));
+
     // Position derived from other 3 detectors
     double derivedPos[gBoardCount];
     double fitSigma[gBoardCount];
@@ -142,6 +156,14 @@ void Correction()
     treeW->Branch("thetaX", &thetaX, "thetaX/D");
     treeW->Branch("thetaY", &thetaY, "thetaY/D");
     treeW->Branch("theta", &theta, "theta/D");
+
+    // Fit line of the event
+    double p0x, p1x, p0y, p1y; 
+    treeW->Branch("p0x", &p0x, "p0x/D");
+    treeW->Branch("p1x", &p1x, "p1x/D");
+    treeW->Branch("p0y", &p0y, "p0y/D");
+    treeW->Branch("p1y", &p1y, "p1y/D");
+
 
     //  X direction is defined as even boards, which means top layers, while Y direction is defined as odd boards, which means bottom layers
     for (int layer = 0; layer < 4; layer++)
@@ -222,6 +244,7 @@ void Correction()
         gDevX->Fit(fpolX, "Q");
         gDevY->Fit(fpolY, "Q");
 
+        // Calculate tanX, tanY for first correction
         tanX = fpolX->GetParameter(1);
         tanY = fpolY->GetParameter(1);
 
@@ -315,6 +338,10 @@ void Correction()
         }
         tgXTemp->Fit(fpolX, "Q");
         tgYTemp->Fit(fpolY, "Q");
+        p0x = fpolX->GetParameter(0);
+        p1x = fpolX->GetParameter(1);
+        p0y = fpolY->GetParameter(0);
+        p1y = fpolY->GetParameter(1);
 
         for (int layer = 0; layer < 4; layer++)
         {

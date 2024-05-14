@@ -75,10 +75,17 @@ function extractImagingData {
     root -l -b -q "Codes/ExtractToImaging.cpp(\"Sum/\")"
 }
 
-# sumMatchedFiles #2> /dev/null
-# generateCaliFile   #2> /dev/null
-getPosition        #2> /dev/null
-sumPosFiles        #2> /dev/null
-correctPosition    #2> /dev/null
-extractImagingData #2> /dev/null
+# Function of Strip Align
+function stripAlign {
+    echo "Processing Strip Align"
+    root -l -b -q "Codes/StripAlign.cpp(\"Sum/\")"
+}
+
+# sumMatchedFiles  #2> /dev/null    # First sum all matched files, to generate calibration file (Board*-Aligned.root)
+# generateCaliFile #2> /dev/null    # Generate Calibration file, Board*-Cali.root, execute "Codes/Calibration.cpp"
+getPosition        #2> /dev/null    # Generate GetPos.root, decode, calculate position, calcPos2, execute "Codes/GetPos.cpp"
+sumPosFiles        #2> /dev/null    # Sum all GetPos.root files
+correctPosition    #2> /dev/null    # Correct position, calcPos3, execute "Codes/Correct1.cpp"
+extractImagingData #2> /dev/null    # Generate imaging data, execute "Codes/ExtractToImaging.cpp"
+stripAlign         #2> /dev/null    # Strip Align, execute "Codes/StripAlign.cpp"
 # root -l -b -q "Codes/GetPos.cpp(\"Cali/\",\"Source/2024-04-01-23-32-31/Processed/\")"
